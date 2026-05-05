@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Space Bubble</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <div id="app">
+      <div id="ui-layer">
+        <div class="score-board">
+          <h2>Stars</h2>
+          <div class="stars-container" id="stars-container">
+            <div class="star-icon"></div>
+            <div class="star-icon"></div>
+            <div class="star-icon"></div>
+            <div class="star-icon"></div>
+            <div class="star-icon"></div>
+          </div>
+        </div>
+        <div class="stats-board glass-panel">
+          <div class="stat-item">Stars Collected: <span id="stat-stars">0</span></div>
+          <div class="stat-item">Planets Visited: <span id="stat-planets">1</span></div>
+          <div class="stat-item">Unicorns Collected: <span id="stat-unicorns-found">0</span></div>
+          <div class="stat-item">Unicorns Missed: <span id="stat-unicorns-missed">0</span></div>
+        </div>
+        <div class="level-indicator" id="level-indicator">Level 1</div>
+        <div class="volume-control">
+          <label for="volume-slider">Music Volume</label>
+          <input type="range" id="volume-slider" min="0" max="100" value="20">
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
