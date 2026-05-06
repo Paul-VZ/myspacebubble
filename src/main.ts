@@ -14,7 +14,7 @@ class Game {
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private clock: THREE.Clock;
-  
+
   private terrain!: TerrainGenerator;
   private player!: Player;
   private stars: Star[] = [];
@@ -23,6 +23,10 @@ class Game {
   private unicorn: Unicorn | null = null;
   private rainbow: THREE.Mesh | null = null;
   private planetRadius = 30;
+  private lastStarUpdateTimestamp = 0;
+  private lastCloudUpdateTimestamp = 0;
+  private starUpdateInterval = 100; // Milliseconds (0.1s)
+  private cloudUpdateInterval = 200; // Milliseconds (0.2s)
 
   constructor() {
     this.scene = new THREE.Scene();
@@ -30,11 +34,11 @@ class Game {
     this.scene.fog = new THREE.FogExp2(0x020208, 0.015);
 
     this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-    
+
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    
+
     const appDiv = document.getElementById('app');
     if (appDiv) appDiv.appendChild(this.renderer.domElement);
 
@@ -47,6 +51,8 @@ class Game {
 
     this.renderer.setAnimationLoop(this.animate.bind(this));
     this.setupAudio();
+
+    // Timestamps already initialised to 0 at field declaration — no reset needed here.
   }
 
   private setupAudio() {
@@ -83,7 +89,7 @@ class Game {
     const backLight = new THREE.DirectionalLight(0x4488ff, 0.8);
     backLight.position.set(-1, -0.5, -1).normalize();
     this.scene.add(backLight);
-    
+
     // Add a subtle rim light from bottom
     const bottomLight = new THREE.DirectionalLight(0x6622aa, 0.5);
     bottomLight.position.set(0, -1, 0).normalize();
@@ -120,7 +126,7 @@ class Game {
     }
 
     this.terrain = new TerrainGenerator(this.planetRadius);
-    const planetMesh = this.terrain.generatePlanet(state.seed, 32); 
+    const planetMesh = this.terrain.generatePlanet(state.seed, 32);
     this.scene.add(planetMesh);
 
     for (let i = 0; i < state.totalStars; i++) {
@@ -129,7 +135,7 @@ class Game {
         Math.random() - 0.5,
         Math.random() - 0.5
       ).normalize();
-      
+
       const star = new Star(dir, this.terrain);
       this.stars.push(star);
       this.scene.add(star.mesh);
@@ -142,7 +148,7 @@ class Game {
         Math.random() - 0.5,
         Math.random() - 0.5
       ).normalize();
-      
+
       const tree = new Tree(dir, this.terrain);
       this.trees.push(tree);
       this.scene.add(tree.mesh);
@@ -155,7 +161,7 @@ class Game {
         Math.random() - 0.5,
         Math.random() - 0.5
       ).normalize();
-      
+
       const altitude = this.planetRadius + 12 + Math.random() * 8;
       const cloud = new Cloud(dir, altitude);
       this.clouds.push(cloud);
@@ -203,29 +209,29 @@ class Game {
         depthWrite: false,
         blending: THREE.AdditiveBlending
       });
-      
+
       this.rainbow = new THREE.Mesh(rainbowGeo, rainbowMat);
-      
+
       // Orient the rainbow so it crosses through the unicorn's location
       const up = new THREE.Vector3(0, 1, 0);
       this.rainbow.quaternion.setFromUnitVectors(up, dir);
-      
+
       // Spin it around the unicorn direction randomly so it arcs in a random direction
       this.rainbow.rotateOnAxis(dir, Math.random() * Math.PI);
-      
+
       this.scene.add(this.rainbow);
     }
 
     this.player = new Player();
-    const playerStartDir = new THREE.Vector3(0, 1, 0); 
+    const playerStartDir = new THREE.Vector3(0, 1, 0);
     const startSurface = this.terrain.getSurfaceData(playerStartDir);
     this.player.mesh.position.copy(startSurface.point);
     this.player.mesh.up.copy(startSurface.normal);
-    
+
     // Initial camera placement
     this.camera.position.copy(startSurface.point.clone().add(startSurface.normal.clone().multiplyScalar(20)));
     this.camera.lookAt(startSurface.point);
-    
+
     this.scene.add(this.player.mesh);
   }
 
@@ -237,43 +243,50 @@ class Game {
 
   private animate() {
     const dt = this.clock.getDelta();
+    const currentTime = this.clock.elapsedTime;
 
     this.player.update(dt, this.terrain, this.camera, this.trees);
 
-    for (const cloud of this.clouds) {
-      cloud.update(dt);
+    // Time-slice: Cloud drift — throttled to every 200 ms
+    if (currentTime - this.lastCloudUpdateTimestamp >= this.cloudUpdateInterval / 1000) {
+      for (const cloud of this.clouds) {
+        cloud.update(dt);
+      }
+      this.lastCloudUpdateTimestamp = currentTime;
     }
 
-    for (const star of this.stars) {
-      star.update(dt);
-      
-      if (!star.isCollected) {
-        const dist = this.player.mesh.position.distanceTo(star.mesh.position);
-        if (dist < 2.5) { 
-          star.collect();
-          state.collectStar();
-          
-          if (this.unicorn && !this.unicorn.isCollected) {
-            this.unicorn.collect();
-            state.missUnicorn();
-          }
-          if (this.rainbow) {
-            this.rainbow.visible = false;
-          }
-          
-          if (state.isLevelComplete()) {
-            setTimeout(() => {
-              state.resetLevel();
-              this.initLevel();
-            }, 800);
+    // Time-slice: Star animation + collection — throttled to every 100 ms
+    if (currentTime - this.lastStarUpdateTimestamp >= this.starUpdateInterval / 1000) {
+      for (const star of this.stars) {
+        if (!star.isCollected) {
+          const dist = this.player.mesh.position.distanceTo(star.mesh.position);
+          if (dist < 2.5) {
+            star.collect();
+            state.collectStar();
+
+            if (this.unicorn && !this.unicorn.isCollected) {
+              this.unicorn.collect();
+              state.missUnicorn();
+            }
+            if (this.rainbow) {
+              this.rainbow.visible = false;
+            }
+
+            if (state.isLevelComplete()) {
+              setTimeout(() => {
+                state.resetLevel();
+                this.initLevel();
+              }, 800);
+            }
           }
         }
       }
+      this.lastStarUpdateTimestamp = currentTime;
     }
 
     if (this.unicorn && !this.unicorn.isCollected) {
       this.unicorn.update(dt);
-      
+
       const dist = this.player.mesh.position.distanceTo(this.unicorn.mesh.position);
       if (dist < 3.0) {
         this.unicorn.collect();
@@ -288,7 +301,7 @@ class Game {
             state.collectStar();
           }
         }
-        
+
         if (state.isLevelComplete()) {
           setTimeout(() => {
             state.resetLevel();
@@ -300,18 +313,18 @@ class Game {
 
     const playerPos = this.player.mesh.position;
     const playerUp = this.player.mesh.up;
-    
+
     // Height offset
     const cameraHeightOffset = playerUp.clone().multiplyScalar(10);
     // Back offset relative to player rotation
     const playerForward = new THREE.Vector3(0, 0, 1).applyQuaternion(this.player.mesh.quaternion).normalize();
     const cameraBackOffset = playerForward.clone().negate().multiplyScalar(15);
-    
+
     const targetCameraPos = playerPos.clone().add(cameraHeightOffset).add(cameraBackOffset);
 
     // Smooth follow
     this.camera.position.lerp(targetCameraPos, 4 * dt);
-    
+
     // Smooth up-vector alignment
     this.camera.up.lerp(playerUp, 4 * dt);
     this.camera.lookAt(playerPos);

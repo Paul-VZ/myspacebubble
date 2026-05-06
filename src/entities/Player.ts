@@ -35,34 +35,56 @@ export class Player {
         loader.loadAsync(walkUrl),
         loader.loadAsync(jumpUrl)
       ]);
-      
-      const model = standGltf.scene;
+
+      // The stand GLB was exported without an armature (static mesh only).
+      // We must use the walk GLB as the canonical mesh + skeleton, otherwise 
+      // the mixer has no bones to deform and the model remains frozen.
+      const model = walkGltf.scene;
       model.scale.set(1.0, 1.0, 1.0);
       model.rotation.y = 0;
       this.mesh.add(model);
-      
+
       this.mixer = new THREE.AnimationMixer(model);
-      
-      const getAnim = (gltf: any) => gltf.animations.length > 0 ? gltf.animations[0] : null;
-      
+
+      const retarget = (clip: THREE.AnimationClip, uniqueName: string): THREE.AnimationClip => {
+        const cloned = clip.clone();
+        cloned.name = uniqueName;
+        cloned.tracks.forEach(track => {
+          const dotIdx = track.name.indexOf('.');
+          if (dotIdx !== -1) {
+            const boneName = track.name.substring(0, dotIdx);
+            const pipeIdx = boneName.indexOf('|');
+            if (pipeIdx !== -1) {
+              track.name = boneName.substring(pipeIdx + 1) + track.name.substring(dotIdx);
+            }
+          }
+        });
+        return cloned;
+      };
+
+      const getAnim = (gltf: any): THREE.AnimationClip | null =>
+        gltf.animations.length > 0 ? gltf.animations[0] : null;
+
       const standAnim = getAnim(standGltf);
-      const walkAnim = getAnim(walkGltf);
-      const jumpAnim = getAnim(jumpGltf);
-      
-      if (standAnim) this.standAction = this.mixer.clipAction(standAnim);
-      if (walkAnim) this.walkAction = this.mixer.clipAction(walkAnim);
+      const walkAnim  = getAnim(walkGltf);
+      const jumpAnim  = getAnim(jumpGltf);
+
+      // If standAnim is missing, we don't create a standAction.
+      // The update loop will fade out other animations, returning to the rig's rest pose (standing).
+      if (standAnim) this.standAction = this.mixer.clipAction(retarget(standAnim, 'stand'));
+      if (walkAnim)  this.walkAction  = this.mixer.clipAction(retarget(walkAnim,  'walk'));
       if (jumpAnim) {
-        this.jumpAction = this.mixer.clipAction(jumpAnim);
+        this.jumpAction = this.mixer.clipAction(retarget(jumpAnim, 'jump'));
         this.jumpAction.setLoop(THREE.LoopOnce, 1);
         this.jumpAction.clampWhenFinished = true;
       }
-      
+
       if (this.standAction) {
         this.currentAction = this.standAction;
         this.currentAction.play();
       }
     } catch (e) {
-      console.error("Failed to load player models", e);
+      console.error('Failed to load player models', e);
     }
   }
 
@@ -170,11 +192,13 @@ export class Player {
       targetAction = this.walkAction;
     }
 
-    if (targetAction && targetAction !== this.currentAction) {
+    if (targetAction !== this.currentAction) {
       if (this.currentAction) {
         this.currentAction.fadeOut(0.2);
       }
-      targetAction.reset().fadeIn(0.2).play();
+      if (targetAction) {
+        targetAction.reset().fadeIn(0.2).play();
+      }
       this.currentAction = targetAction;
     }
   }
